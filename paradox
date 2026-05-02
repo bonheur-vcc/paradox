@@ -138,7 +138,7 @@
     </div>
 
     <!-- 方案一：使用 jsDelivr CDN 加载 Three.js -->
-    <script type="importmap">
+<script type="importmap">
   {
     "imports": {
       "three": "https://unpkg.com/three@0.150.0/build/three.module.js",
