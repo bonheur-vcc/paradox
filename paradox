@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>悖论剧场 · 规则自噬系统 / Paradox Theatre · The Autophagic Rule System</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #01010c;
+            font-family: 'Times New Roman', 'Noto Serif SC', serif;
+            touch-action: manipulation;
+            cursor: default;
+        }
+        #info-panel {
+            position: fixed;
+            top: 2rem;
+            left: 2rem;
+            color: #b8a070;
+            font-size: 0.9rem;
+            letter-spacing: 0.1em;
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0.85;
+            line-height: 1.8;
+        }
+        #entropy-display {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #c09060;
+            font-size: 1.2rem;
+            letter-spacing: 0.2em;
+            z-index: 10;
+            pointer-events: none;
+            background: rgba(0,0,0,0.55);
+            padding: 0.4rem 1.8rem;
+            border-radius: 30px;
+            backdrop-filter: blur(10px);
+        }
+        #message {
+            position: fixed;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #e6d7a8;
+            font-size: 1.1rem;
+            text-align: center;
+            z-index: 20;
+            pointer-events: none;
+            transition: opacity 0.5s;
+            text-shadow: 0 0 15px black;
+            width: 80%;
+        }
+        .temptation-pulse {
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(220,180,100,0.8);
+            box-shadow: 0 0 30px #d4b87a;
+            pointer-events: auto;
+            cursor: pointer;
+            z-index: 50;
+            animation: pulse 1.2s infinite;
+            display: none;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.8); opacity: 0.3; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+        #cert-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(2,2,14,0.94);
+            backdrop-filter: blur(22px);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            color: #d4c5a0;
+            text-align: center;
+            padding: 2rem;
+        }
+        #cert-title {
+            font-size: clamp(2rem, 8vw, 3.5rem);
+            font-weight: 200;
+            letter-spacing: 0.35em;
+            margin-bottom: 0.8rem;
+        }
+        #cert-stats {
+            font-size: 1rem;
+            margin: 1.5rem 0;
+            line-height: 2;
+        }
+        #cert-quote {
+            font-style: italic;
+            margin: 1rem 0 2rem;
+            opacity: 0.7;
+            max-width: 500px;
+        }
+        .cert-btn {
+            background: transparent;
+            border: 1px solid rgba(200,160,100,0.45);
+            color: #d4b87a;
+            padding: 0.6rem 1.8rem;
+            margin: 0.4rem;
+            font-family: inherit;
+            letter-spacing: 0.12em;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .cert-btn:hover {
+            background: rgba(200,160,100,0.15);
+            border-color: #d4b87a;
+        }
+    </style>
+</head>
+<body>
+    <div id="info-panel">
+        <span id="rule-count">规则：3</span><br>
+        <span id="still-time">静止：0s</span>
+    </div>
+    <div id="entropy-display">熵 H = 0.02</div>
+    <div id="message"></div>
+    <div class="temptation-pulse" id="temptation-dot"></div>
+
+    <div id="cert-overlay">
+        <div id="cert-title"></div>
+        <div id="cert-stats"></div>
+        <div id="cert-quote"></div>
+        <button class="cert-btn" id="cert-download">📜 下载证明</button>
+        <button class="cert-btn" id="cert-close">继续扰动</button>
+    </div>
+
+    <!-- 方案一：使用 jsDelivr CDN 加载 Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.150.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // ---------- 几何与材质池 ----------
+        const geos = [
+            new THREE.TetrahedronGeometry(0.7),
+            new THREE.BoxGeometry(0.65, 0.65, 0.65),
+            new THREE.OctahedronGeometry(0.65),
+            new THREE.DodecahedronGeometry(0.55),
+            new THREE.IcosahedronGeometry(0.6),
+            new THREE.SphereGeometry(0.5, 4, 2),
+        ];
+        const colors = [0xd4a373, 0x7f8c8d, 0xa67c52, 0x5d6d7e, 0x7d6e5d, 0x9b8a7a];
+
+        // ---------- 全局状态 ----------
+        const MAX_RULES = 110;
+        const state = {
+            rules: [],
+            connections: [],
+            totalClicks: 0,
+            totalHoverCreates: 0,
+            stillTime: 0,
+            lastActivity: Date.now(),
+            frozen: false,
+            entropy: 0,
+            ending: null,
+            consecutiveDays: 1,
+            lastDate: null,
+            gazeCount: 0,
+            clickCount: 0,
+            trimmedCount: 0,
+        };
+
+        // ---------- 场景初始化 ----------
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('#01010c');
+        scene.fog = new THREE.FogExp2('#01010c', 0.0001);
+
+        const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.5, 200);
+        camera.position.set(6, 5, 10);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.35;
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        // 灯光
+        scene.add(new THREE.AmbientLight('#3a3a4a', 0.7));
+        const light = new THREE.DirectionalLight('#f0e6d2', 0.9);
+        light.position.set(10, 15, 10);
+        scene.add(light);
+
+        // 星空背景
+        const starsGeo = new THREE.BufferGeometry();
+        const starsPos = new Float32Array(600 * 3);
+        for (let i = 0; i < 600 * 3; i += 3) {
+            starsPos[i] = (Math.random() - 0.5) * 80;
+            starsPos[i + 1] = (Math.random() - 0.5) * 50;
+            starsPos[i + 2] = (Math.random() - 0.5) * 60;
+        }
+        starsGeo.setAttribute('position', new THREE.BufferAttribute(starsPos, 3));
+        scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({ color: '#b0b8c8', size: 0.08 })));
+
+        // ---------- 规则与连接管理 ----------
+        function createRule(x, y, z, colorIdx, label) {
+            const geoIdx = Math.floor(Math.random() * geos.length);
+            const mat = new THREE.MeshStandardMaterial({
+                color: colors[colorIdx % colors.length],
+                roughness: 0.3,
+                metalness: 0.3,
+                emissive: new THREE.Color(colors[colorIdx % colors.length]).multiplyScalar(0.15),
+                emissiveIntensity: 0.4,
+            });
+            const mesh = new THREE.Mesh(geos[geoIdx], mat);
+            mesh.position.set(x, y, z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.userData = {
+                type: label,
+                active: true,
+                hoverTimer: 0,
+                hoverActive: false,
+                colorIndex: colorIdx,
+            };
+            scene.add(mesh);
+            return mesh;
+        }
+
+        function createConnection(ruleA, ruleB) {
+            const points = [ruleA.position.clone(), ruleB.position.clone()];
+            const geo = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: '#5a5a6e', transparent: true, opacity: 0.25 }));
+            scene.add(line);
+            return { line, from: ruleA, to: ruleB };
+        }
+
+        function updateConnectionLine(conn) {
+            const posArr = conn.line.geometry.attributes.position.array;
+            posArr[0] = conn.from.position.x;
+            posArr[1] = conn.from.position.y;
+            posArr[2] = conn.from.position.z;
+            posArr[3] = conn.to.position.x;
+            posArr[4] = conn.to.position.y;
+            posArr[5] = conn.to.position.z;
+            conn.line.geometry.attributes.position.needsUpdate = true;
+        }
+
+        function removeRule(ruleMesh) {
+            state.connections = state.connections.filter(c => {
+                if (c.from === ruleMesh || c.to === ruleMesh) {
+                    scene.remove(c.line);
+                    return false;
+                }
+                return true;
+            });
+            state.rules.forEach(r => {
+                if (r.userData.connectedTo) {
+                    r.userData.connectedTo = r.userData.connectedTo.filter(ref => ref !== ruleMesh);
+                }
+            });
+            scene.remove(ruleMesh);
+            state.rules = state.rules.filter(r => r !== ruleMesh);
+        }
+
+        function spawnRuleNear(originMesh, label) {
+            if (state.rules.length >= MAX_RULES) return null;
+            const pos = originMesh.position.clone();
+            pos.x += (Math.random() - 0.5) * 2.5;
+            pos.y += (Math.random() - 0.5) * 2.5;
+            pos.z += (Math.random() - 0.5) * 2.5;
+            const newRule = createRule(pos.x, pos.y, pos.z, originMesh.userData.colorIndex + 1, label);
+            state.rules.push(newRule);
+            const conn = createConnection(originMesh, newRule);
+            state.connections.push(conn);
+            if (!originMesh.userData.connectedTo) originMesh.userData.connectedTo = [];
+            originMesh.userData.connectedTo.push(newRule);
+            if (!newRule.userData.connectedTo) newRule.userData.connectedTo = [];
+            newRule.userData.connectedTo.push(originMesh);
+            return newRule;
+        }
+
+        function updateEntropy() {
+            state.entropy = Math.min(1, state.rules.length / MAX_RULES);
+            document.getElementById('entropy-display').textContent = `熵 H = ${state.entropy.toFixed(2)}`;
+        }
+
+        // 构建初始规则网络
+        function initWorld() {
+            const r1 = createRule(0, 0, 0, 0, '基本公理');
+            const r2 = createRule(1.8, 0.5, 0.5, 1, '推演法则');
+            const r3 = createRule(-1.2, -0.5, 1.2, 2, '存在假设');
+            state.rules.push(r1, r2, r3);
+            const c12 = createConnection(r1, r2);
+            const c23 = createConnection(r2, r3);
+            const c31 = createConnection(r3, r1);
+            state.connections.push(c12, c23, c31);
+            r1.userData.connectedTo = [r2, r3];
+            r2.userData.connectedTo = [r1, r3];
+            r3.userData.connectedTo = [r1, r2];
+        }
+        initWorld();
+        updateEntropy();
+
+        // ---------- 交互 ----------
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let hoveredRule = null;
+
+        function onMouseMove(e) {
+            if (state.frozen) return;
+            mouse.x = (e.clientX / renderer.domElement.clientWidth) * 2 - 1;
+            mouse.y = -(e.clientY / renderer.domElement.clientHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(state.rules);
+            if (intersects.length > 0) {
+                const obj = intersects[0].object;
+                if (obj !== hoveredRule) {
+                    if (hoveredRule) {
+                        hoveredRule.userData.hoverActive = false;
+                        hoveredRule.material.emissive.set(new THREE.Color(colors[hoveredRule.userData.colorIndex % colors.length]).multiplyScalar(0.15));
+                    }
+                    hoveredRule = obj;
+                    hoveredRule.userData.hoverActive = true;
+                    hoveredRule.material.emissive.set('#ffd700');
+                }
+                state.lastActivity = Date.now();
+                state.stillTime = 0;
+            } else {
+                if (hoveredRule) {
+                    hoveredRule.userData.hoverActive = false;
+                    hoveredRule.material.emissive.set(new THREE.Color(colors[hoveredRule.userData.colorIndex % colors.length]).multiplyScalar(0.15));
+                    hoveredRule = null;
+                }
+            }
+        }
+
+        function onClick(e) {
+            if (state.frozen) return;
+            mouse.x = (e.clientX / renderer.domElement.clientWidth) * 2 - 1;
+            mouse.y = -(e.clientY / renderer.domElement.clientHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(state.rules);
+            if (intersects.length > 0) {
+                const ruleMesh = intersects[0].object;
+                if (ruleMesh.userData.active) {
+                    state.clickCount++;
+                    state.totalClicks++;
+                    state.lastActivity = Date.now();
+                    state.stillTime = 0;
+                    
+                    // 生成对立规则
+                    spawnRuleNear(ruleMesh, '对立规则');
+                    // 原规则变灰表示已用
+                    ruleMesh.material.color.set('#4a4a5a');
+                    ruleMesh.material.emissive.set('#111111');
+                    ruleMesh.userData.active = false;
+                    
+                    updateEntropy();
+                    showMessage('你激活了一条规则，但它立刻产生了对立面。');
+                    checkEndings();
+                }
+            }
+        }
+
+        // 悬浮计时生成规则
+        let hoverAccum = 0;
+        function updateHover(delta) {
+            if (!hoveredRule || !hoveredRule.userData.hoverActive) {
+                hoverAccum = 0;
+                return;
+            }
+            hoverAccum += delta;
+            if (hoverAccum >= 1.0) {
+                hoverAccum = 0;
+                state.totalHoverCreates++;
+                state.gazeCount++;
+                state.lastActivity = Date.now();
+                state.stillTime = 0;
+                spawnRuleNear(hoveredRule, '凝视产物');
+                updateEntropy();
+                showMessage('你的凝视创造了新规则。');
+                checkEndings();
+            }
+        }
+
+        function showMessage(text) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.style.opacity = '1';
+            setTimeout(() => { msg.style.opacity = '0'; }, 2500);
+        }
+
+        // ---------- 静止修剪与诱惑 ----------
+        let trimTimer = 0;
+        let temptTimer = 0;
+        const temptDot = document.getElementById('temptation-dot');
+
+        function updateStillness(delta) {
+            const idle = (Date.now() - state.lastActivity) / 1000;
+            state.stillTime = idle;
+            document.getElementById('still-time').textContent = `静止：${Math.floor(idle)}s`;
+
+            // 修剪
+            if (idle > 8 && state.rules.length > 2) {
+                trimTimer += delta;
+                if (trimTimer >= 3) {
+                    trimTimer = 0;
+                    const victim = state.rules[Math.floor(Math.random() * state.rules.length)];
+                    removeRule(victim);
+                    state.trimmedCount++;
+                    updateEntropy();
+                    showMessage('系统自我修剪了一条规则。');
+                    checkEndings();
+                }
+            } else {
+                trimTimer = 0;
+            }
+
+            // 诱惑
+            if (idle > 6 && !state.frozen) {
+                temptTimer += delta;
+                if (temptTimer > 4) {
+                    temptTimer = 0;
+                    temptDot.style.display = 'block';
+                    temptDot.style.left = (Math.random() * 80 + 10) + '%';
+                    temptDot.style.top = (Math.random() * 70 + 15) + '%';
+                    setTimeout(() => { temptDot.style.display = 'none'; }, 2500);
+                }
+            }
+        }
+
+        temptDot.addEventListener('click', (e) => {
+            e.stopPropagation();
+            state.lastActivity = Date.now();
+            state.stillTime = 0;
+            showMessage('你屈从了诱惑，系统熵增。');
+            if (state.rules.length > 0) {
+                const base = state.rules[Math.floor(Math.random() * state.rules.length)];
+                spawnRuleNear(base, '诱惑产物');
+                spawnRuleNear(base, '诱惑产物');
+            }
+            updateEntropy();
+            temptDot.style.display = 'none';
+            checkEndings();
+        });
+
+        // ---------- 结局检测 ----------
+        function checkEndings() {
+            if (state.frozen) return;
+            const s = state;
+            if (s.stillTime > 120 && s.rules.length <= 3) triggerEnding('stillpoint');
+            else if (s.rules.length >= MAX_RULES) triggerEnding('breeder');
+            else if (s.clickCount >= 3 && s.entropy > 0.7) triggerEnding('paradox');
+            else if (s.totalHoverCreates >= 5 && s.clickCount === 0) triggerEnding('observer');
+            else if (s.consecutiveDays >= 7) triggerEnding('ritual');
+            else if (s.totalClicks === 0 && s.totalHoverCreates === 0 && s.stillTime > 60) triggerEnding('lazy');
+            else if (s.clickCount > 25 && s.stillTime < 5) triggerEnding('entropy');
+        }
+
+        function triggerEnding(type) {
+            state.frozen = true;
+            const endings = {
+                stillpoint: { title: '不动点智者', quote: '无为让系统自我修复。但你浪费了生命中的两分钟。' },
+                breeder: { title: '规则繁殖者', quote: '你试图完善体系，却制造了官僚主义地狱。' },
+                paradox: { title: '悖论引爆者', quote: '你证明了此系统不一致，获得逻辑炸弹奖。' },
+                observer: { title: '元观察者', quote: '你只是看着，却让规则指数级增长。凝视即创造。' },
+                ritual: { title: '七日苦行僧', quote: '习惯成为徒劳的仪式，你已与系统共生。' },
+                lazy: { title: '绝对懒人', quote: '你甚至没开始，却被授予纯粹存在证明。' },
+                entropy: { title: '熵增烈士', quote: '你疯狂优化，导致系统热寂。' },
+            };
+            const data = endings[type] || endings.stillpoint;
+            document.getElementById('cert-title').textContent = data.title;
+            document.getElementById('cert-stats').innerHTML = `
+                规则数量：${state.rules.length}<br>
+                点击次数：${state.totalClicks}<br>
+                凝视创建：${state.totalHoverCreates}<br>
+                静止峰值：${Math.floor(state.stillTime)}s
+            `;
+            document.getElementById('cert-quote').textContent = data.quote;
+            document.getElementById('cert-overlay').style.display = 'flex';
+            saveProgress();
+        }
+
+        // ---------- 跨日记录 ----------
+        function saveProgress() {
+            const today = new Date().toDateString();
+            if (state.lastDate) {
+                const last = new Date(state.lastDate);
+                const diff = (new Date(today) - last) / 86400000;
+                if (diff === 1) state.consecutiveDays++;
+                else if (diff > 1) state.consecutiveDays = 1;
+            }
+            state.lastDate = today;
+            localStorage.setItem('paradox_theatre_v2', JSON.stringify({
+                lastDate: state.lastDate,
+                consecutiveDays: state.consecutiveDays,
+            }));
+        }
+        function loadProgress() {
+            try {
+                const raw = localStorage.getItem('paradox_theatre_v2');
+                if (raw) {
+                    const d = JSON.parse(raw);
+                    state.lastDate = d.lastDate || null;
+                    state.consecutiveDays = d.consecutiveDays || 1;
+                }
+            } catch (e) {}
+        }
+        loadProgress();
+        saveProgress();
+
+        // 证书下载
+        document.getElementById('cert-download').addEventListener('click', () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 800; canvas.height = 500;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#0a0a1a'; ctx.fillRect(0, 0, 800, 500);
+            ctx.fillStyle = '#e6d7b8'; ctx.font = 'bold 38px "Times New Roman"'; ctx.textAlign = 'center';
+            ctx.fillText(document.getElementById('cert-title').textContent, 400, 100);
+            ctx.font = '20px "Times New Roman"';
+            ctx.fillText(document.getElementById('cert-quote').textContent, 400, 180);
+            ctx.fillText(document.getElementById('cert-stats').innerText, 400, 260);
+            const link = document.createElement('a');
+            link.download = 'paradox-cert.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+        document.getElementById('cert-close').addEventListener('click', () => {
+            document.getElementById('cert-overlay').style.display = 'none';
+            state.frozen = false;
+            state.lastActivity = Date.now();
+            state.stillTime = 0;
+            state.clickCount = 0;
+            state.totalHoverCreates = 0;
+            state.totalClicks = 0;
+            updateEntropy();
+        });
+
+        // 事件绑定
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('click', onClick);
+        window.addEventListener('touchmove', e => {
+            if (e.touches.length === 1) {
+                const t = e.touches[0];
+                onMouseMove({ clientX: t.clientX, clientY: t.clientY });
+            }
+        });
+        window.addEventListener('touchend', e => {
+            const t = e.changedTouches[0];
+            onClick({ clientX: t.clientX, clientY: t.clientY });
+        });
+        window.addEventListener('keydown', e => {
+            if (e.key === 'q' || e.key === 'Q') {
+                state.gazeCount++;
+                showMessage('你按下了远观键，但这本身也是一种扰动。');
+                state.lastActivity = Date.now();
+                state.stillTime = 0;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        });
+
+        // ---------- 动画循环 ----------
+        const clock = new THREE.Clock();
+        function animate() {
+            const delta = Math.min(clock.getDelta(), 0.3);
+            if (!state.frozen) {
+                state.rules.forEach(r => {
+                    r.rotation.x += 0.002;
+                    r.rotation.y += 0.003;
+                });
+                updateHover(delta);
+                updateStillness(delta);
+                state.connections.forEach(c => updateConnectionLine(c));
+                document.getElementById('rule-count').textContent = `规则：${state.rules.length}`;
+                updateEntropy();
+                controls.autoRotate = true;
+            } else {
+                controls.autoRotate = false;
+            }
+            controls.update();
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+        animate();
+    </script>
+</body>
+</html>
